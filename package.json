@@ -1,9 +1,11 @@
 {
   "name": "memecoin-monitor",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "main": "index.js",
   "scripts": {
-    "start": "npx tsx runner.ts"
+    "start": "npx tsx runner.ts",
+    "listener": "npx tsx index.ts",
+    "tracker": "npx tsx tracker.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.0.0",
@@ -18,4 +20,3 @@
     "typescript": "^5.0.0"
   }
 }
-
