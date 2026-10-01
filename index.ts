@@ -142,39 +142,76 @@ async function createSpecimen(params: {
 }
 
 async function processMessage(event: NewMessageEvent) {
-  const chat = await event.message.getChat();
-  const channelTitle = (chat as Api.Channel)?.title || "Unknown Channel";
+  try {
+    const messageTextRaw = event.message.message || "";
+    // Collapse whitespace so addresses split across lines still match
+    const messageText = messageTextRaw.replace(/\s+/g, "");
+    const displayText = messageTextRaw;
 
-  if (!channelTitle.toLowerCase().includes("apex gambles")) return;
-
-  const messageText = event.message.message;
-  if (!messageText) return;
-
-  const solana = messageText.match(SOLANA_REGEX) || [];
-  const evm = messageText.match(EVM_REGEX) || [];
-  const addresses = Array.from(new Set([...solana, ...evm]));
-  if (addresses.length === 0) return;
-
-  for (const address of addresses) {
-    if (await isDuplicate(address)) {
-      console.log(`[DUPLICATE] ${address}`);
-      continue;
+    let channelTitle = "Unknown";
+    try {
+      const chat = await event.message.getChat();
+      channelTitle =
+        (chat as Api.Channel)?.title || (chat as any)?.title || "Unknown";
+    } catch (e: any) {
+      console.warn("[CHAT] could not resolve chat:", e?.message || e);
     }
 
-    console.log(`\n[APEX GAMBLES CALL] ${address}`);
-    const metrics = await fetchTokenMetrics(address);
-    const fetchFailed = !metrics || metrics.priceUsd == null || metrics.priceUsd <= 0;
+    const titleLower = channelTitle.toLowerCase();
+    const isApex =
+      titleLower.includes("apex") && titleLower.includes("gamble");
 
-    await createSpecimen({
-      channelName: channelTitle,
-      contractAddress: address,
-      rawMessage: messageText,
-      metrics,
-      fetchFailed,
-      fetchError: fetchFailed
-        ? "Unable to resolve price from DexScreener or GeckoTerminal"
-        : undefined,
-    });
+    if (isApex) {
+      console.log(
+        `[MSG] "\( {channelTitle}" textLen= \){displayText.length} normalizedLen=${messageText.length}`
+      );
+      if (displayText.length > 0 && displayText.length < 220) {
+        console.log(`[MSG BODY] ${displayText.slice(0, 200)}`);
+      }
+    }
+
+    if (!isApex) return;
+
+    if (!messageText) {
+      console.log(`[MSG] empty text — skip`);
+      return;
+    }
+
+    const solana = messageText.match(SOLANA_REGEX) || [];
+    const evm = messageText.match(EVM_REGEX) || [];
+    const addresses = Array.from(new Set([...solana, ...evm]));
+
+    if (addresses.length === 0) {
+      console.log(`[MSG] no contract address found`);
+      return;
+    }
+
+    console.log(`[MSG] addresses: ${addresses.join(", ")}`);
+
+    for (const address of addresses) {
+      if (await isDuplicate(address)) {
+        console.log(`[DUPLICATE] ${address}`);
+        continue;
+      }
+
+      console.log(`\n[APEX GAMBLES CALL] ${address}`);
+      const metrics = await fetchTokenMetrics(address);
+      const fetchFailed =
+        !metrics || metrics.priceUsd == null || metrics.priceUsd <= 0;
+
+      await createSpecimen({
+        channelName: channelTitle,
+        contractAddress: address,
+        rawMessage: displayText,
+        metrics,
+        fetchFailed,
+        fetchError: fetchFailed
+          ? "Unable to resolve price from DexScreener or GeckoTerminal"
+          : undefined,
+      });
+    }
+  } catch (err: any) {
+    console.error("[processMessage]", err?.message || err);
   }
 }
 
