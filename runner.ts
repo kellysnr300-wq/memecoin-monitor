@@ -1,11 +1,26 @@
 import { spawn } from "child_process";
+import http from "http";
+
+const PORT = Number(process.env.PORT) || 10000;
+
+// Dummy HTTP server so Render Web Service stays healthy
+const server = http.createServer((req, res) => {
+  if (req.url === "/health" || req.url === "/") {
+    res.writeHead(200, { "Content-Type": "text/plain" });
+    res.end("Memecoin Monitor is running\n");
+    return;
+  }
+  res.writeHead(404);
+  res.end();
+});
+
+server.listen(PORT, "0.0.0.0", () => {
+  console.log(`[HTTP] Dummy server listening on port ${PORT}`);
+});
 
 console.log("🚀 Launching MemeCoin Monitoring Suite...\n");
 
-// Start Telegram Listener
 const listener = spawn("npx", ["tsx", "index.ts"], { stdio: "inherit" });
-
-// Start Performance Tracker
 const tracker = spawn("npx", ["tsx", "tracker.ts"], { stdio: "inherit" });
 
 listener.on("close", (code) => {
@@ -15,4 +30,3 @@ listener.on("close", (code) => {
 tracker.on("close", (code) => {
   console.error(`[CRITICAL] Tracker exited with code ${code}`);
 });
-
