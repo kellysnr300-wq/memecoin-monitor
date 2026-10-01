@@ -67,7 +67,7 @@
 
   var sb = supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY);
   var state = { signals: [], arms: [] };
-  var charts = { fill: null, outcome: null, roi: null };
+  var charts = { fill: null, outcome: null, roi: null, specimenPrice: null };
 
   function fmtPrice(n) {
     if (n == null || n === "") return "—";
@@ -166,6 +166,31 @@
       state.arms = armRes.data || [];
       var lr = $("last-refresh");
       if (lr) lr.textContent = new Date().toLocaleTimeString();
+      var hr = $("health-refresh");
+      if (hr) hr.textContent = new Date().toLocaleTimeString();
+      var day = sigRes.data && sigRes.data.length
+        ? Math.max.apply(null, sigRes.data.map(function (s) {
+            return Number(s.experiment_day) || 0;
+          }))
+        : 0;
+      var hd = $("health-day");
+      if (hd) hd.textContent = day ? String(day) : "—";
+      fetch("/health")
+        .then(function (r) {
+          var api = $("health-api");
+          if (!api) return;
+          api.textContent = r.ok ? "online" : "error";
+          api.className = r.ok
+            ? "text-accent"
+            : "text-danger";
+        })
+        .catch(function () {
+          var api = $("health-api");
+          if (api) {
+            api.textContent = "offline";
+            api.className = "text-danger";
+          }
+        });
       renderOverview();
       renderTreatments();
       renderSignals();
@@ -184,6 +209,18 @@
       if (el) el.textContent = v;
     }
     set("stat-signals", sigs.length);
+    set(
+      "stat-valid",
+      sigs.filter(function (s) {
+        return s.fetch_status === "success" && s.signal_price_usd != null;
+      }).length
+    );
+    set(
+      "stat-failed",
+      sigs.filter(function (s) {
+        return s.fetch_status === "failed" || s.signal_price_usd == null;
+      }).length
+    );
     set(
       "stat-open",
       sigs.filter(function (s) {
@@ -236,6 +273,9 @@
               fmtPrice(s.signal_price_usd) +
               "</td>" +
               '<td class="py-2.5 pr-3">' +
+              fmtPrice(s.highest_price_usd) +
+              "</td>" +
+              '<td class="py-2.5 pr-3">' +
               statusPill(s.status) +
               "</td>" +
               '<td class="py-2.5 text-slate-500">' +
@@ -244,7 +284,7 @@
             );
           })
           .join("") ||
-        '<tr><td colspan="6" class="py-6 text-center text-slate-500">No signals yet</td></tr>';
+        '<tr><td colspan="7" class="py-6 text-center text-slate-500">No specimens yet</td></tr>';
     }
 
     if (typeof Chart === "undefined") return;
@@ -501,6 +541,9 @@
             '<td class="px-3 py-3">' +
             fmtPrice(s.signal_price_usd) +
             "</td>" +
+            '<td class="px-3 py-3 text-info">' +
+            fmtPrice(s.highest_price_usd) +
+            "</td>" +
             '<td class="px-3 py-3 text-slate-400">' +
             fmtPrice(s.lowest_price_usd) +
             " / " +
@@ -565,7 +608,7 @@
     $("specimen-detail").style.display = "block";
 
     $("sp-id").textContent = sig.specimen_id;
-    \( ("sp-token").textContent = " \)" + (sig.token_symbol || "UNKNOWN");
+    $("sp-token").textContent = sig.token_symbol || "UNKNOWN";
     $("sp-meta").textContent =
       (sig.network || "?") +
       " · Day " +
@@ -573,6 +616,14 @@
       " · " +
       shortTime(sig.called_at);
     $("sp-price").textContent = fmtPrice(sig.signal_price_usd);
+    $("sp-latest").textContent = fmtPrice(sig.highest_price_usd);
+    $("sp-source").textContent =
+      "Fetch: " +
+      (sig.fetch_status || "—") +
+      " · Source: " +
+      (sig.fetch_source || "—") +
+      " · Channel: " +
+      (sig.channel_name || "—");
 
     var arms = state.arms
       .filter(function (a) {
@@ -625,6 +676,76 @@
         })
         .join("") ||
       '<tr><td colspan="10" class="px-4 py-6 text-center text-slate-500">No arms</td></tr>';
+
+    var tickRes = await sb
+      .from("price_ticks")
+      .select("*")
+      .eq("signal_id", id)
+      .order("observed_at", { ascending: true });
+
+    if (!tickRes.error && tickRes.data && tickRes.data.length) {
+      var ticks = tickRes.data;
+      $("sp-latest").textContent = fmtPrice(
+        ticks[ticks.length - 1].price_usd
+      );
+
+      var chartEl = $("chart-specimen-price");
+      if (chartEl && typeof Chart !== "undefined") {
+        if (charts.specimenPrice) charts.specimenPrice.destroy();
+
+        var labels = ticks.map(function (t) {
+          return shortTime(t.observed_at);
+        });
+        var values = ticks.map(function (t) {
+          return Number(t.price_usd);
+        });
+
+        charts.specimenPrice = new Chart(chartEl.getContext("2d"), {
+          type: "line",
+          data: {
+            labels: labels,
+            datasets: [{
+              label: "Observed price",
+              data: values,
+              borderColor: "rgba(125, 211, 252, 0.9)",
+              backgroundColor: "rgba(125, 211, 252, 0.08)",
+              borderWidth: 1.5,
+              pointRadius: 0,
+              tension: 0.15,
+              fill: true
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: { display: false }
+            },
+            scales: {
+              x: {
+                ticks: {
+                  color: "#64748b",
+                  font: { size: 9 },
+                  maxTicksLimit: 7
+                },
+                grid: { color: "rgba(26,30,42,0.8)" }
+              },
+              y: {
+                type: "logarithmic",
+                ticks: {
+                  color: "#64748b",
+                  font: { size: 9 },
+                  callback: function (v) {
+                    return fmtPrice(v);
+                  }
+                },
+                grid: { color: "rgba(26,30,42,0.8)" }
+              }
+            }
+          }
+        });
+      }
+    }
 
     var evRes = await sb
       .from("arm_events")

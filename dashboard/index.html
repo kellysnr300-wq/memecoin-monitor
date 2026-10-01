@@ -89,9 +89,9 @@
 
   <main class="max-w-7xl mx-auto px-3 sm:px-6 py-5 sm:py-6 space-y-5 sm:space-y-6">
     <section id="panel-overview" class="panel space-y-5 sm:space-y-6">
-      <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 sm:gap-3">
+      <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-8 gap-2.5 sm:gap-3">
         <div class="card rounded-xl p-3 sm:p-4">
-          <p class="text-[10px] uppercase tracking-wider text-slate-500">Signals</p>
+          <p class="text-[10px] uppercase tracking-wider text-slate-500">Specimens</p>
           <p id="stat-signals" class="mt-1 text-xl sm:text-2xl font-semibold text-white font-mono">0</p>
         </div>
         <div class="card rounded-xl p-3 sm:p-4">
@@ -114,7 +114,36 @@
           <p class="text-[10px] uppercase tracking-wider text-slate-500">Full TP</p>
           <p id="stat-fulltp" class="mt-1 text-xl sm:text-2xl font-semibold text-accent font-mono">0</p>
         </div>
+        <div class="card rounded-xl p-3 sm:p-4">
+          <p class="text-[10px] uppercase tracking-wider text-slate-500">Valid</p>
+          <p id="stat-valid" class="mt-1 text-xl sm:text-2xl font-semibold text-accent font-mono">0</p>
+        </div>
+        <div class="card rounded-xl p-3 sm:p-4">
+          <p class="text-[10px] uppercase tracking-wider text-slate-500">Fetch failures</p>
+          <p id="stat-failed" class="mt-1 text-xl sm:text-2xl font-semibold text-danger font-mono">0</p>
+        </div>
       </div>
+
+      <div class="card rounded-xl p-4">
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 class="text-xs font-medium text-slate-400 uppercase tracking-wider">Experiment status</h2>
+            <p class="text-[11px] text-slate-600 mt-1">Operational status only · does not alter experimental data</p>
+          </div>
+          <div class="flex flex-wrap gap-2 font-mono text-[11px]">
+            <span class="px-2 py-1 rounded-md bg-ink-900 border border-ink-700">
+              Day <span id="health-day" class="text-white">—</span>
+            </span>
+            <span class="px-2 py-1 rounded-md bg-ink-900 border border-ink-700">
+              API <span id="health-api" class="text-slate-400">checking</span>
+            </span>
+            <span class="px-2 py-1 rounded-md bg-ink-900 border border-ink-700">
+              Refresh <span id="health-refresh" class="text-slate-400">—</span>
+            </span>
+          </div>
+        </div>
+      </div>
+
       <div class="grid lg:grid-cols-2 gap-3 sm:gap-4">
         <div class="card rounded-xl p-4">
           <h2 class="text-xs font-medium text-slate-400 uppercase tracking-wider mb-3">Fill rate by arm</h2>
@@ -128,13 +157,14 @@
       <div class="card rounded-xl p-4">
         <h2 class="text-xs font-medium text-slate-400 uppercase tracking-wider mb-3">Recent specimens</h2>
         <div class="table-scroll">
-          <table class="w-full text-left text-sm min-w-[520px]">
+          <table class="w-full text-left text-sm min-w-[600px]">
             <thead class="text-[10px] uppercase tracking-wider text-slate-500 border-b border-ink-700">
               <tr>
                 <th class="pb-2 pr-3 font-medium">Specimen</th>
                 <th class="pb-2 pr-3 font-medium">Token</th>
                 <th class="pb-2 pr-3 font-medium">Day</th>
-                <th class="pb-2 pr-3 font-medium">Signal $</th>
+                <th class="pb-2 pr-3 font-medium">P0 $</th>
+                <th class="pb-2 pr-3 font-medium">High $</th>
                 <th class="pb-2 pr-3 font-medium">Status</th>
                 <th class="pb-2 font-medium">When</th>
               </tr>
@@ -197,7 +227,8 @@
                 <th class="px-3 sm:px-4 py-3 font-medium">Specimen</th>
                 <th class="px-2 sm:px-3 py-3 font-medium">Token</th>
                 <th class="px-2 sm:px-3 py-3 font-medium">Network</th>
-                <th class="px-2 sm:px-3 py-3 font-medium">Signal $</th>
+                <th class="px-2 sm:px-3 py-3 font-medium">P0 $</th>
+                <th class="px-2 sm:px-3 py-3 font-medium">High $</th>
                 <th class="px-2 sm:px-3 py-3 font-medium">Low / High</th>
                 <th class="px-2 sm:px-3 py-3 font-medium">Day</th>
                 <th class="px-2 sm:px-3 py-3 font-medium">Status</th>
@@ -224,10 +255,13 @@
               <p id="sp-id" class="font-mono text-accent text-sm break-all"></p>
               <h2 id="sp-token" class="text-lg sm:text-xl font-semibold text-white mt-1"></h2>
               <p id="sp-meta" class="text-xs text-slate-500 mt-1 font-mono break-all"></p>
+              <p id="sp-source" class="text-[11px] text-slate-600 mt-1 font-mono break-all"></p>
             </div>
             <div class="text-left sm:text-right">
               <p class="text-[10px] uppercase text-slate-500">Signal price</p>
               <p id="sp-price" class="font-mono text-lg text-white"></p>
+              <p class="text-[10px] uppercase text-slate-600 mt-2">Latest observed</p>
+              <p id="sp-latest" class="font-mono text-sm text-info"></p>
             </div>
           </div>
         </div>
@@ -251,6 +285,15 @@
               <tbody id="sp-arms" class="font-mono text-xs divide-y divide-ink-700"></tbody>
             </table>
           </div>
+        </div>
+        <div class="card rounded-xl p-4">
+          <div class="flex items-center justify-between gap-2 mb-3">
+            <div>
+              <h3 class="text-xs font-medium text-slate-400 uppercase tracking-wider">Observed price trajectory</h3>
+              <p class="text-[11px] text-slate-600 mt-1">Actual observed ticks; event thresholds remain fixed by the experiment</p>
+            </div>
+          </div>
+          <div class="h-56 sm:h-64"><canvas id="chart-specimen-price"></canvas></div>
         </div>
         <div class="card rounded-xl p-4">
           <h3 class="text-xs font-medium text-slate-400 uppercase tracking-wider mb-3">Event sequence</h3>
