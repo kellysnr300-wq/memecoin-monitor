@@ -3,7 +3,6 @@ import http from "http";
 
 const PORT = Number(process.env.PORT) || 10000;
 
-// Dummy HTTP server so Render Web Service stays healthy
 const server = http.createServer((req, res) => {
   if (req.url === "/health" || req.url === "/") {
     res.writeHead(200, { "Content-Type": "text/plain" });
@@ -15,10 +14,10 @@ const server = http.createServer((req, res) => {
 });
 
 server.listen(PORT, "0.0.0.0", () => {
-  console.log(`[HTTP] Dummy server listening on port ${PORT}`);
+  console.log(`[HTTP] Health server on port ${PORT}`);
 });
 
-console.log("🚀 Launching MemeCoin Monitoring Suite...\n");
+console.log("Launching experiment suite (listener + treatment engine)...\n");
 
 const listener = spawn("npx", ["tsx", "index.ts"], { stdio: "inherit" });
 const tracker = spawn("npx", ["tsx", "tracker.ts"], { stdio: "inherit" });
@@ -26,7 +25,6 @@ const tracker = spawn("npx", ["tsx", "tracker.ts"], { stdio: "inherit" });
 listener.on("close", (code) => {
   console.error(`[CRITICAL] Listener exited with code ${code}`);
 });
-
 tracker.on("close", (code) => {
   console.error(`[CRITICAL] Tracker exited with code ${code}`);
 });

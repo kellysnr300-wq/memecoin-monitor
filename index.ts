@@ -2,9 +2,14 @@ import { TelegramClient, Api } from "telegram";
 import { StringSession } from "telegram/sessions";
 import { NewMessage, NewMessageEvent } from "telegram/events";
 import { createClient } from "@supabase/supabase-js";
-import axios from "axios";
 import dotenv from "dotenv";
 import input from "input";
+import { fetchTokenMetrics } from "./lib/price";
+import {
+  ARM_DEFINITIONS,
+  experimentDay,
+  specimenId,
+} from "./lib/arms";
 
 dotenv.config();
 
@@ -15,13 +20,14 @@ const apiId = Number(process.env.TELEGRAM_API_ID);
 const apiHash = process.env.TELEGRAM_API_HASH || "";
 const stringSession = new StringSession(process.env.TELEGRAM_SESSION_STRING || "");
 
+const EXPERIMENT_START = process.env.EXPERIMENT_START_DATE || "2026-10-01";
+
 if (!apiId || !apiHash || !process.env.TELEGRAM_SESSION_STRING) {
-  console.error("[CRITICAL] Missing TELEGRAM_API_ID / TELEGRAM_API_HASH / TELEGRAM_SESSION_STRING");
+  console.error("[CRITICAL] Missing TELEGRAM credentials");
   process.exit(1);
 }
-
 if (!process.env.SUPABASE_URL || !process.env.SUPABASE_KEY) {
-  console.error("[CRITICAL] Missing SUPABASE_URL / SUPABASE_KEY");
+  console.error("[CRITICAL] Missing SUPABASE credentials");
   process.exit(1);
 }
 
@@ -30,183 +36,145 @@ const supabase = createClient(
   process.env.SUPABASE_KEY
 );
 
-interface TokenMetrics {
-  symbol: string;
-  priceUsd: number;
-  liquidityUsd: number | null;
-  marketCap: number | null;
-  chainId: string;
-  pairUrl: string | null;
-  source: "DexScreener" | "GeckoTerminal";
-}
-
-function sleep(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function detectNetwork(address: string): string {
-  if (address.startsWith("0x")) return "eth";
-  return "solana";
-}
-
-async function fetchTokenMetrics(tokenAddress: string): Promise<TokenMetrics | null> {
-  const dsUrl = `https://api.dexscreener.com/latest/dex/tokens/${tokenAddress}`;
-
-  for (let attempt = 1; attempt <= 3; attempt++) {
-    try {
-      const res = await axios.get(dsUrl, { timeout: 7000 });
-      const pairs = res.data?.pairs || [];
-
-      if (pairs.length > 0) {
-        pairs.sort(
-          (a: any, b: any) => (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0)
-        );
-        const pair = pairs[0];
-        const price = pair.priceUsd ? parseFloat(pair.priceUsd) : NaN;
-
-        if (!isNaN(price) && price > 0) {
-          return {
-            symbol: pair.baseToken?.symbol || "UNKNOWN",
-            priceUsd: price,
-            liquidityUsd: pair.liquidity?.usd ?? null,
-            marketCap: pair.fdv ?? pair.marketCap ?? null,
-            chainId: pair.chainId || "unknown",
-            pairUrl: pair.url || null,
-            source: "DexScreener",
-          };
-        }
-      }
-      break;
-    } catch (err: any) {
-      const status = err.response?.status;
-      if (status === 429 && attempt < 3) {
-        const delay = attempt * 2500;
-        console.warn(
-          `[DexScreener 429] ${tokenAddress} – retry ${attempt}/3 in ${delay / 1000}s`
-        );
-        await sleep(delay);
-        continue;
-      }
-      console.warn(
-        `[DexScreener Failed] ${tokenAddress}: ${err.message}. Trying GeckoTerminal…`
-      );
-      break;
-    }
-  }
-
-  try {
-    const network = detectNetwork(tokenAddress);
-    const gtUrl = `https://api.geckoterminal.com/api/v2/networks/\( {network}/tokens/ \){tokenAddress}`;
-    const gtRes = await axios.get(gtUrl, {
-      timeout: 7000,
-      headers: { Accept: "application/json;version=20230203" },
-    });
-
-    const attr = gtRes.data?.data?.attributes;
-    if (attr?.price_usd) {
-      const price = parseFloat(attr.price_usd);
-      if (!isNaN(price) && price > 0) {
-        return {
-          symbol: (attr.symbol || "UNKNOWN").toUpperCase(),
-          priceUsd: price,
-          liquidityUsd: attr.total_reserve_in_usd
-            ? parseFloat(attr.total_reserve_in_usd)
-            : null,
-          marketCap: attr.fdv_usd ? parseFloat(attr.fdv_usd) : null,
-          chainId: network,
-          pairUrl: null,
-          source: "GeckoTerminal",
-        };
-      }
-    }
-  } catch (err: any) {
-    console.error(`[GeckoTerminal Failed] ${tokenAddress}: ${err.message}`);
-  }
-
-  return null;
-}
-
-async function isDuplicateCall(contractAddress: string): Promise<boolean> {
-  const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
-
+async function isDuplicate(contractAddress: string): Promise<boolean> {
+  const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
   const { data, error } = await supabase
-    .from("token_calls")
+    .from("signals")
     .select("id")
     .eq("contract_address", contractAddress)
-    .gte("created_at", fiveMinutesAgo)
+    .gte("called_at", fiveMinAgo)
     .limit(1);
-
   if (error) {
-    console.error("[Database Error]:", error.message);
+    console.error("[DB]", error.message);
     return false;
   }
-
   return !!(data && data.length > 0);
+}
+
+async function createSpecimen(params: {
+  channelName: string;
+  contractAddress: string;
+  rawMessage: string;
+  metrics: Awaited<ReturnType<typeof fetchTokenMetrics>>;
+  fetchFailed: boolean;
+  fetchError?: string;
+}) {
+  const now = new Date();
+  const short = params.contractAddress.slice(-6).toUpperCase();
+  const sid = specimenId(now, short);
+  const day = experimentDay(now, EXPERIMENT_START);
+
+  const signalPrice = params.metrics?.priceUsd ?? null;
+  const resolved = !params.fetchFailed && signalPrice != null && signalPrice > 0;
+
+  const { data: signal, error: sigErr } = await supabase
+    .from("signals")
+    .insert({
+      specimen_id: sid,
+      experiment_day: day > 0 ? day : null,
+      called_at: now.toISOString(),
+      channel_name: params.channelName,
+      caller: null,
+      token_symbol: resolved ? params.metrics!.symbol : "UNKNOWN",
+      contract_address: params.contractAddress,
+      network: resolved ? params.metrics!.chainId : "unknown",
+      signal_price_usd: signalPrice,
+      signal_fdv: resolved ? params.metrics!.marketCap : null,
+      signal_liquidity: resolved ? params.metrics!.liquidityUsd : null,
+      pair_url: resolved ? params.metrics!.pairUrl : null,
+      raw_message: params.rawMessage.substring(0, 1000),
+      fetch_status: resolved ? "success" : "failed",
+      fetch_source: resolved ? params.metrics!.source : null,
+      fetch_error: resolved
+        ? null
+        : params.fetchError || "Unable to resolve price",
+      lowest_price_usd: signalPrice,
+      highest_price_usd: signalPrice,
+      lowest_at: signalPrice ? now.toISOString() : null,
+      highest_at: signalPrice ? now.toISOString() : null,
+      status: "open",
+    })
+    .select("id, specimen_id, signal_price_usd")
+    .single();
+
+  if (sigErr || !signal) {
+    console.error("[DB signal insert]", sigErr?.message);
+    return;
+  }
+
+  if (resolved && signal.signal_price_usd) {
+    const p0 = Number(signal.signal_price_usd);
+    const armRows = ARM_DEFINITIONS.map((def) => {
+      const entryTarget = p0 * (1 - def.discount_pct / 100);
+      return {
+        signal_id: signal.id,
+        arm_code: def.arm_code,
+        discount_pct: def.discount_pct,
+        entry_target_usd: entryTarget,
+        filled: false,
+        no_fill: false,
+        remaining_pct: 1.0,
+        tp1_hit: false,
+        tp2_hit: false,
+        tp3_hit: false,
+        stop_hit: false,
+        realized_pnl_usd: 0,
+        realized_roi: 0,
+      };
+    });
+
+    const { error: armErr } = await supabase
+      .from("treatment_arms")
+      .insert(armRows);
+
+    if (armErr) {
+      console.error("[DB arms insert]", armErr.message);
+    } else {
+      console.log(
+        `[SPECIMEN] ${signal.specimen_id} | \[ {params.metrics!.symbol} @ \]{p0} | Day ${day} | 8 arms created`
+      );
+    }
+  } else {
+    console.log(
+      `[SPECIMEN] ${signal.specimen_id} | price unresolved — logged without arms`
+    );
+  }
 }
 
 async function processMessage(event: NewMessageEvent) {
   const chat = await event.message.getChat();
   const channelTitle = (chat as Api.Channel)?.title || "Unknown Channel";
 
-  if (!channelTitle.toLowerCase().includes("apex gambles")) {
-    return;
-  }
+  if (!channelTitle.toLowerCase().includes("apex gambles")) return;
 
   const messageText = event.message.message;
   if (!messageText) return;
 
-  const solanaMatches = messageText.match(SOLANA_REGEX) || [];
-  const evmMatches = messageText.match(EVM_REGEX) || [];
-  const extractedAddresses = Array.from(
-    new Set([...solanaMatches, ...evmMatches])
-  );
+  const solana = messageText.match(SOLANA_REGEX) || [];
+  const evm = messageText.match(EVM_REGEX) || [];
+  const addresses = Array.from(new Set([...solana, ...evm]));
+  if (addresses.length === 0) return;
 
-  if (extractedAddresses.length === 0) return;
-
-  for (const address of extractedAddresses) {
-    const isDup = await isDuplicateCall(address);
-    if (isDup) {
-      console.log(`[DUPLICATE IGNORED] ${address}`);
+  for (const address of addresses) {
+    if (await isDuplicate(address)) {
+      console.log(`[DUPLICATE] ${address}`);
       continue;
     }
 
     console.log(`\n[APEX GAMBLES CALL] ${address}`);
-
     const metrics = await fetchTokenMetrics(address);
+    const fetchFailed = !metrics || metrics.priceUsd == null || metrics.priceUsd <= 0;
 
-    const resolved =
-      metrics && metrics.priceUsd != null && metrics.priceUsd > 0;
-
-    const callPayload = {
-      channel_name: channelTitle,
-      contract_address: address,
-      chain_id: resolved ? metrics!.chainId : "unknown",
-      symbol: resolved ? metrics!.symbol : "UNKNOWN",
-      entry_price_usd: resolved ? metrics!.priceUsd : null,
-      entry_fdv: resolved ? metrics!.marketCap : null,
-      entry_liquidity: resolved ? metrics!.liquidityUsd : null,
-      pair_url: resolved ? metrics!.pairUrl : null,
-      raw_message: messageText.substring(0, 1000),
-      fetch_status: resolved ? "success" : "failed",
-      fetch_source: resolved ? metrics!.source : null,
-      fetch_error: resolved
-        ? null
-        : "Unable to resolve price from DexScreener or GeckoTerminal",
-    };
-
-    const { error } = await supabase.from("token_calls").insert(callPayload);
-
-    if (error) {
-      console.error("[Database Insert Error]:", error.message);
-    } else if (resolved) {
-      console.log(
-        `[LOGGED via ${metrics!.source}] \[ {metrics!.symbol} | Price: \]{metrics!.priceUsd} | Liq: \[ {metrics!.liquidityUsd} | MC: \]{metrics!.marketCap}`
-      );
-    } else {
-      console.log(
-        `[LOGGED AS FAILED] ${address} – price unresolved (still tracked)`
-      );
-    }
+    await createSpecimen({
+      channelName: channelTitle,
+      contractAddress: address,
+      rawMessage: messageText,
+      metrics,
+      fetchFailed,
+      fetchError: fetchFailed
+        ? "Unable to resolve price from DexScreener or GeckoTerminal"
+        : undefined,
+    });
   }
 }
 
@@ -226,7 +194,8 @@ async function main() {
   });
 
   console.log("\n================ LOGIN SUCCESSFUL ================");
-  console.log("[BOT ACTIVE] Monitoring Apex Gambles in real-time...\n");
+  console.log("[BOT ACTIVE] Monitoring Apex Gambles → experiment pipeline\n");
+  console.log(`[CONFIG] Experiment Day 1 start: ${EXPERIMENT_START} (UTC)`);
 
   client.addEventHandler(processMessage, new NewMessage({}));
 }
