@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Apex Experiment · 60-Day Study</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            ink: { 950: '#07080c', 900: '#0c0e14', 800: '#12151e', 700: '#1a1e2a' },
+            accent: { DEFAULT: '#6ee7b7', dim: '#34d399', muted: '#059669' },
+            warn: '#fbbf24',
+            danger: '#f87171',
+            info: '#7dd3fc',
+          },
+          fontFamily: {
+            sans: ['Inter', 'system-ui', 'sans-serif'],
+            mono: ['JetBrains Mono', 'ui-monospace', 'monospace'],
+          },
+        },
+      },
+    };
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    body { background: #07080c; }
+    .card { background: #0c0e14; border: 1px solid #1a1e2a; }
+    .pill { font-size: 0.65rem; letter-spacing: 0.04em; }
+    .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    tr.data-row:hover { background: #12151e; }
+    .tab-active { color: #6ee7b7; border-bottom: 2px solid #6ee7b7; }
+    #toast { transition: opacity 0.3s; }
+  </style>
+</head>
+<body class="font-sans text-slate-200 antialiased min-h-screen">
+  <header class="sticky top-0 z-40 border-b border-ink-700 bg-ink-950/90 backdrop-blur-md">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 py-3 flex flex-wrap items-center justify-between gap-3">
+      <div class="flex items-center gap-3">
+        <div class="w-8 h-8 rounded-lg bg-accent/10 border border-accent/30 flex items-center justify-center">
+          <span class="text-accent font-mono text-sm font-bold">AX</span>
+        </div>
+        <div>
+          <h1 class="text-sm sm:text-base font-semibold tracking-tight text-white">Apex Experiment</h1>
+          <p class="text-[11px] text-slate-500 font-mono">60-day entry-discount study</p>
+        </div>
+      </div>
+      <div class="flex items-center gap-2 sm:gap-4">
+        <div id="live-badge" class="flex items-center gap-1.5 text-[11px] text-slate-400 font-mono">
+          <span class="w-1.5 h-1.5 rounded-full bg-accent animate-pulse"></span>
+          <span id="last-refresh">—</span>
+        </div>
+        <button id="btn-refresh" class="text-[11px] px-3 py-1.5 rounded-md border border-ink-700 hover:border-accent/40 hover:text-accent transition">
+          Refresh
+        </button>
+      </div>
+    </div>
+    <nav class="max-w-7xl mx-auto px-4 sm:px-6 flex gap-1 overflow-x-auto text-sm">
+      <button data-tab="overview" class="tab tab-active px-3 py-2.5 text-slate-400 hover:text-white whitespace-nowrap">Overview</button>
+      <button data-tab="treatments" class="tab px-3 py-2.5 text-slate-400 hover:text-white whitespace-nowrap">Treatments</button>
+      <button data-tab="signals" class="tab px-3 py-2.5 text-slate-400 hover:text-white whitespace-nowrap">Signals</button>
+      <button data-tab="specimen" class="tab px-3 py-2.5 text-slate-400 hover:text-white whitespace-nowrap">Specimen</button>
+    </nav>
+  </header>
+
+  <main class="max-w-7xl mx-auto px-4 sm:px-6 py-6 space-y-6">
+    <section id="panel-overview" class="panel space-y-6">
+      <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+        <div class="card rounded-xl p-4">
+          <p class="text-[10px] uppercase tracking-wider text-slate-500">Signals</p>
+          <p id="stat-signals" class="mt-1 text-2xl font-semibold text-white font-mono">0</p>
+        </div>
+        <div class="card rounded-xl p-4">
+          <p class="text-[10px] uppercase tracking-wider text-slate-500">Open</p>
+          <p id="stat-open" class="mt-1 text-2xl font-semibold text-info font-mono">0</p>
+        </div>
+        <div class="card rounded-xl p-4">
+          <p class="text-[10px] uppercase tracking-wider text-slate-500">Fills</p>
+          <p id="stat-fills" class="mt-1 text-2xl font-semibold text-accent font-mono">0</p>
+        </div>
+        <div class="card rounded-xl p-4">
+          <p class="text-[10px] uppercase tracking-wider text-slate-500">No-fill</p>
+          <p id="stat-nofill" class="mt-1 text-2xl font-semibold text-warn font-mono">0</p>
+        </div>
+        <div class="card rounded-xl p-4">
+          <p class="text-[10px] uppercase tracking-wider text-slate-500">Stops</p>
+          <p id="stat-stops" class="mt-1 text-2xl font-semibold text-danger font-mono">0</p>
+        </div>
+        <div class="card rounded-xl p-4">
+          <p class="text-[10px] uppercase tracking-wider text-slate-500">Full TP</p>
+          <p id="stat-fulltp" class="mt-1 text-2xl font-semibold text-accent font-mono">0</p>
+        </div>
+      </div>
+      <div class="grid lg:grid-cols-2 gap-4">
+        <div class="card rounded-xl p-4 sm:p-5">
+          <h2 class="text-xs font-medium text-slate-400 uppercase tracking-wider mb-4">Fill rate by arm</h2>
+          <div class="h-56"><canvas id="chart-fill"></canvas></div>
+        </div>
+        <div class="card rounded-xl p-4 sm:p-5">
+          <h2 class="text-xs font-medium text-slate-400 uppercase tracking-wider mb-4">Outcome mix (all arms)</h2>
+          <div class="h-56"><canvas id="chart-outcome"></canvas></div>
+        </div>
+      </div>
+      <div class="card rounded-xl p-4 sm:p-5">
+        <h2 class="text-xs font-medium text-slate-400 uppercase tracking-wider mb-3">Recent specimens</h2>
+        <div class="table-scroll">
+          <table class="w-full text-left text-sm">
+            <thead class="text-[10px] uppercase tracking-wider text-slate-500 border-b border-ink-700">
+              <tr>
+                <th class="pb-2 pr-3 font-medium">Specimen</th>
+                <th class="pb-2 pr-3 font-medium">Token</th>
+                <th class="pb-2 pr-3 font-medium">Day</th>
+                <th class="pb-2 pr-3 font-medium">Signal $</th>
+                <th class="pb-2 pr-3 font-medium">Status</th>
+                <th class="pb-2 font-medium">When</th>
+              </tr>
+            </thead>
+            <tbody id="recent-signals" class="font-mono text-xs"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section id="panel-treatments" class="panel hidden space-y-4">
+      <div>
+        <h2 class="text-lg font-semibold text-white">Treatment comparison</h2>
+        <p class="text-xs text-slate-500 mt-0.5">Eight arms · same exit protocol · $100 notional</p>
+      </div>
+      <div class="card rounded-xl overflow-hidden">
+        <div class="table-scroll">
+          <table class="w-full text-left text-sm min-w-[720px]">
+            <thead class="text-[10px] uppercase tracking-wider text-slate-500 bg-ink-900 border-b border-ink-700">
+              <tr>
+                <th class="px-4 py-3 font-medium">Arm</th>
+                <th class="px-3 py-3 font-medium">Discount</th>
+                <th class="px-3 py-3 font-medium">Signals</th>
+                <th class="px-3 py-3 font-medium">Fills</th>
+                <th class="px-3 py-3 font-medium">Fill %</th>
+                <th class="px-3 py-3 font-medium">TP1</th>
+                <th class="px-3 py-3 font-medium">TP2</th>
+                <th class="px-3 py-3 font-medium">TP3</th>
+                <th class="px-3 py-3 font-medium">Stops</th>
+                <th class="px-3 py-3 font-medium">No-fill</th>
+                <th class="px-3 py-3 font-medium">Σ P&amp;L</th>
+                <th class="px-3 py-3 font-medium">Avg ROI</th>
+              </tr>
+            </thead>
+            <tbody id="treatment-table" class="font-mono text-xs divide-y divide-ink-700"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="card rounded-xl p-4 sm:p-5">
+        <h3 class="text-xs font-medium text-slate-400 uppercase tracking-wider mb-4">Avg ROI by arm</h3>
+        <div class="h-64"><canvas id="chart-roi"></canvas></div>
+      </div>
+    </section>
+
+    <section id="panel-signals" class="panel hidden space-y-4">
+      <div class="flex flex-wrap gap-2 items-center">
+        <input id="filter-search" type="search" placeholder="Search token / specimen / address"
+          class="flex-1 min-w-[180px] bg-ink-900 border border-ink-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-accent/50" />
+        <select id="filter-status" class="bg-ink-900 border border-ink-700 rounded-lg px-3 py-2 text-sm">
+          <option value="">All status</option>
+          <option value="open">Open</option>
+          <option value="closed">Closed</option>
+        </select>
+      </div>
+      <div class="card rounded-xl overflow-hidden">
+        <div class="table-scroll">
+          <table class="w-full text-left text-sm min-w-[640px]">
+            <thead class="text-[10px] uppercase tracking-wider text-slate-500 bg-ink-900 border-b border-ink-700">
+              <tr>
+                <th class="px-4 py-3 font-medium">Specimen</th>
+                <th class="px-3 py-3 font-medium">Token</th>
+                <th class="px-3 py-3 font-medium">Network</th>
+                <th class="px-3 py-3 font-medium">Signal $</th>
+                <th class="px-3 py-3 font-medium">Low / High</th>
+                <th class="px-3 py-3 font-medium">Day</th>
+                <th class="px-3 py-3 font-medium">Status</th>
+                <th class="px-3 py-3 font-medium"></th>
+              </tr>
+            </thead>
+            <tbody id="signals-table" class="font-mono text-xs divide-y divide-ink-700"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section id="panel-specimen" class="panel hidden space-y-4">
+      <div class="flex flex-wrap gap-2 items-center">
+        <select id="specimen-select" class="flex-1 min-w-[200px] bg-ink-900 border border-ink-700 rounded-lg px-3 py-2 text-sm font-mono">
+          <option value="">Select specimen…</option>
+        </select>
+      </div>
+      <div id="specimen-empty" class="card rounded-xl p-8 text-center text-slate-500 text-sm">
+        Select a specimen to view lifecycle
+      </div>
+      <div id="specimen-detail" class="hidden space-y-4">
+        <div class="card rounded-xl p-4 sm:p-5">
+          <div class="flex flex-wrap justify-between gap-3">
+            <div>
+              <p id="sp-id" class="font-mono text-accent text-sm"></p>
+              <h2 id="sp-token" class="text-xl font-semibold text-white mt-1"></h2>
+              <p id="sp-meta" class="text-xs text-slate-500 mt-1 font-mono"></p>
+            </div>
+            <div class="text-right">
+              <p class="text-[10px] uppercase text-slate-500">Signal price</p>
+              <p id="sp-price" class="font-mono text-lg text-white"></p>
+            </div>
+          </div>
+        </div>
+        <div class="card rounded-xl overflow-hidden">
+          <div class="table-scroll">
+            <table class="w-full text-left text-sm min-w-[700px]">
+              <thead class="text-[10px] uppercase tracking-wider text-slate-500 bg-ink-900 border-b border-ink-700">
+                <tr>
+                  <th class="px-4 py-3 font-medium">Arm</th>
+                  <th class="px-3 py-3 font-medium">Entry tgt</th>
+                  <th class="px-3 py-3 font-medium">Filled</th>
+                  <th class="px-3 py-3 font-medium">TP1</th>
+                  <th class="px-3 py-3 font-medium">TP2</th>
+                  <th class="px-3 py-3 font-medium">TP3</th>
+                  <th class="px-3 py-3 font-medium">Stop</th>
+                  <th class="px-3 py-3 font-medium">Remaining</th>
+                  <th class="px-3 py-3 font-medium">P&amp;L</th>
+                  <th class="px-3 py-3 font-medium">Closure</th>
+                </tr>
+              </thead>
+              <tbody id="sp-arms" class="font-mono text-xs divide-y divide-ink-700"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="card rounded-xl p-4 sm:p-5">
+          <h3 class="text-xs font-medium text-slate-400 uppercase tracking-wider mb-3">Event sequence</h3>
+          <div id="sp-events" class="space-y-2 text-xs font-mono"></div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <div id="toast" class="fixed bottom-4 right-4 opacity-0 pointer-events-none card px-4 py-2 rounded-lg text-sm shadow-lg z-50"></div>
+
+  <script src="/dashboard/config.js"></script>
+  <script src="/dashboard/app.js"></script>
+</body>
+</html>

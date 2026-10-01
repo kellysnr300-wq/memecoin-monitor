@@ -1,0 +1,4 @@
+window.DASHBOARD_CONFIG = {
+  SUPABASE_URL: "https://bajfvxdrbsdvqofbggfn.supabase.co",
+  SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJhamZ2eGRyYnNkdnFvZmJnZ2ZuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA2OTc5NDMsImV4cCI6MjEwNjI3Mzk0M30.xWaejwbBFO5fHKy-VjcKGc6f0eNVcZLEnTPQdLYX4zk",
+};
