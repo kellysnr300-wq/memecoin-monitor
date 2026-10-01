@@ -123,9 +123,7 @@ async function createSpecimen(params: {
       };
     });
 
-    const { error: armErr } = await supabase
-      .from("treatment_arms")
-      .insert(armRows);
+    const { error: armErr } = await supabase.from("treatment_arms").insert(armRows);
 
     if (armErr) {
       console.error("[DB arms insert]", armErr.message);
@@ -144,33 +142,40 @@ async function createSpecimen(params: {
 async function processMessage(event: NewMessageEvent) {
   try {
     const messageTextRaw = event.message.message || "";
-    // Collapse whitespace so addresses split across lines still match
     const messageText = messageTextRaw.replace(/\s+/g, "");
     const displayText = messageTextRaw;
 
     let channelTitle = "Unknown";
+    let chatId: any = null;
     try {
       const chat = await event.message.getChat();
       channelTitle =
-        (chat as Api.Channel)?.title || (chat as any)?.title || "Unknown";
+        (chat as Api.Channel)?.title ||
+        (chat as any)?.title ||
+        (chat as any)?.className ||
+        "Unknown";
+      chatId = (chat as any)?.id;
     } catch (e: any) {
-      console.warn("[CHAT] could not resolve chat:", e?.message || e);
+      console.warn("[CHAT] resolve failed:", e?.message || e);
+    }
+
+    // DEBUG: log EVERY message so we know updates are flowing
+    console.log(
+      `[RAW] chat="\( {channelTitle}" id= \){chatId} out=\( {event.message.out} len= \){displayText.length}`
+    );
+    if (displayText) {
+      console.log(`[RAW BODY] ${displayText.slice(0, 160).replace(/\n/g, " ")}`);
     }
 
     const titleLower = channelTitle.toLowerCase();
     const isApex =
       titleLower.includes("apex") && titleLower.includes("gamble");
 
-    if (isApex) {
-      console.log(
-        `[MSG] "\( {channelTitle}" textLen= \){displayText.length} normalizedLen=${messageText.length}`
-      );
-      if (displayText.length > 0 && displayText.length < 220) {
-        console.log(`[MSG BODY] ${displayText.slice(0, 200)}`);
-      }
-    }
-
     if (!isApex) return;
+
+    console.log(
+      `[MSG] Apex hit textLen=\( {displayText.length} normalizedLen= \){messageText.length}`
+    );
 
     if (!messageText) {
       console.log(`[MSG] empty text — skip`);
@@ -218,6 +223,7 @@ async function processMessage(event: NewMessageEvent) {
 async function main() {
   const client = new TelegramClient(stringSession, apiId, apiHash, {
     connectionRetries: 5,
+    autoReconnect: true,
   });
 
   await client.start({
@@ -231,8 +237,24 @@ async function main() {
   });
 
   console.log("\n================ LOGIN SUCCESSFUL ================");
-  console.log("[BOT ACTIVE] Monitoring Apex Gambles → experiment pipeline\n");
+
+  // Load dialogs so channel entities are cached (important for updates)
+  try {
+    const dialogs = await client.getDialogs({ limit: 100 });
+    console.log(`[DIALOGS] loaded ${dialogs.length} chats`);
+    for (const d of dialogs) {
+      const title = (d.name || d.title || "").toString();
+      if (title.toLowerCase().includes("apex") || title.toLowerCase().includes("gamble")) {
+        console.log(`[DIALOGS] match: "\( {title}" id= \){d.id}`);
+      }
+    }
+  } catch (e: any) {
+    console.warn("[DIALOGS] failed:", e?.message || e);
+  }
+
+  console.log("[BOT ACTIVE] Monitoring Apex Gambles → experiment pipeline");
   console.log(`[CONFIG] Experiment Day 1 start: ${EXPERIMENT_START} (UTC)`);
+  console.log("[DEBUG] Will log [RAW] for every new message");
 
   client.addEventHandler(processMessage, new NewMessage({}));
 }
