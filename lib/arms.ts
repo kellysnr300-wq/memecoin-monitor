@@ -47,5 +47,5 @@ export function specimenId(calledAt: Date, shortHash: string): string {
   const y = calledAt.getUTCFullYear();
   const m = String(calledAt.getUTCMonth() + 1).padStart(2, "0");
   const d = String(calledAt.getUTCDate()).padStart(2, "0");
-  return `SIG-\( {y} \){m}\( {d}- \){shortHash}`;
+  return `SIG-${y}${m}${d}-${shortHash}`;
 }

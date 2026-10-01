@@ -129,7 +129,7 @@ async function createSpecimen(params: {
       console.error("[DB arms insert]", armErr.message);
     } else {
       console.log(
-        `[SPECIMEN] ${signal.specimen_id} | \[ {params.metrics!.symbol} @ \]{p0} | Day ${day} | 8 arms created`
+        `[SPECIMEN] ${signal.specimen_id} | ${params.metrics!.symbol} @ ${p0} | Day ${day} | 8 arms created`
       );
     }
   } else {
@@ -161,7 +161,7 @@ async function processMessage(event: NewMessageEvent) {
 
     // DEBUG: log EVERY message so we know updates are flowing
     console.log(
-      `[RAW] chat="\( {channelTitle}" id= \){chatId} out=\( {event.message.out} len= \){displayText.length}`
+      `[RAW] chat="${channelTitle}" id=${chatId} out=${event.message.out} len=${displayText.length}`
     );
     if (displayText) {
       console.log(`[RAW BODY] ${displayText.slice(0, 160).replace(/\n/g, " ")}`);
@@ -174,7 +174,7 @@ async function processMessage(event: NewMessageEvent) {
     if (!isApex) return;
 
     console.log(
-      `[MSG] Apex hit textLen=\( {displayText.length} normalizedLen= \){messageText.length}`
+      `[MSG] Apex hit textLen=${displayText.length} normalizedLen=${messageText.length}`
     );
 
     if (!messageText) {
@@ -245,7 +245,7 @@ async function main() {
     for (const d of dialogs) {
       const title = (d.name || d.title || "").toString();
       if (title.toLowerCase().includes("apex") || title.toLowerCase().includes("gamble")) {
-        console.log(`[DIALOGS] match: "\( {title}" id= \){d.id}`);
+        console.log(`[DIALOGS] match: "${title}" id=${d.id}`);
       }
     }
   } catch (e: any) {
